@@ -7,6 +7,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <sys/select.h>
+#include <fcntl.h>
 
 #include <errno.h>
 
@@ -46,6 +48,27 @@ struct addrinfo* setup_server_address(){
     return res;
 }
 
+int set_nonblocking(int sock_fd){
+    int flags = fcntl(sock_fd,
+            F_GETFL,
+            0);
+    if(flags == -1){
+        perror("FCNTL_GT ");
+        return 0;
+    }
+
+    flags |= O_NONBLOCK;
+
+    int fcntl_stat = fcntl(sock_fd,
+            F_SETFL,
+            flags);
+    if(fcntl_stat == -1){
+        perror("FCNTL_ST ");
+        return 0;
+    }
+    return 1;
+}
+
 int init_server(){
     struct addrinfo *addr = setup_server_address();
     if(addr == NULL){
@@ -74,10 +97,12 @@ int init_server(){
                     sizeof(int));
 
             int bind_stat = bind(sock_fd,
-                    (struct sockaddr*)&temp->ai_addr,
-                    (socklen_t)temp->ai_addrlen);
+                    temp->ai_addr,
+                    temp->ai_addrlen);
             if(bind_stat == -1){
+                perror("BIND ");
                 close(sock_fd);
+                sock_fd = -1;
                 temp = temp->ai_next;
                 continue;
             }   
@@ -89,10 +114,17 @@ int init_server(){
         //error in binding
         goto label_fai;
     }
+    if(!set_nonblocking(sock_fd)){
+        close(sock_fd);
+        sock_fd = -1;
+        goto label_fai;
+    }
 
     int listen_stat = listen(sock_fd,
             BACKLOG);
     if(listen_stat == -1){
+        close(sock_fd);
+        sock_fd = -1;
         printf("Failed to init the server\n");
     }
     printf("Successfully init the server...\n");
@@ -122,7 +154,7 @@ int ev_lp(int listen_sockfd){
 
         int select_stat = select(
                     max_fd + 1,
-                    r_set,
+                    &r_set,
                     NULL,
                     NULL,
                     NULL
@@ -134,12 +166,36 @@ int ev_lp(int listen_sockfd){
         for(int fd = 0 ; fd <= max_fd ; fd++){
             if(FD_ISSET(fd,&r_set)){
                 //check new incoming conection
-                if(i == listen_sockfd){
+                if(fd == listen_sockfd){
                     //TODO accept the new connection 
                     //from the completed connection queue
                     //and set it to the master_set 
                     //and update the max_fd
                     //if the new fd is greater than
+                    struct sockaddr_storage client_addr; //can store either IPv4 or IPv6
+                    socklen_t client_addr_len = sizeof client_addr;
+
+                    int client_sockfd = accept(listen_sockfd,
+                            (struct sockaddr*)&client_addr,
+                            &client_addr_len);
+                    if(client_sockfd == -1){
+                        switch(errno){
+                            case EWOULDBLOCK || EAGAIN:
+                                continue;
+                            default:
+                                continue;
+                        }
+                    }
+                   
+                    if(!set_nonblocking(client_sockfd)){
+                        shutdown(client_sockfd,SHUT_RDWR);
+                        continue;
+                    }
+
+                    FD_SET(client_sockfd,&master_set);
+                    if(client_sockfd > max_fd){
+                        max_fd = client_sockfd;
+                    }
                 }
                 //check data arrival , FIN,
                 //RST on the connected client
@@ -154,12 +210,15 @@ int ev_lp(int listen_sockfd){
 
 int main(void){
     int listen_sockfd = init_server();
-    printf("%d\n",listen_sockfd);
 
     if(listen_sockfd == -1){
-        close(passive_sock_fd);
+        printf("Failed in initiating a server\n");
+        return -1;
     }
-    
+
     int evlp_stat = ev_lp(listen_sockfd);
+    
+    label_close_listenfd:
+    close(listen_sockfd);
     return 0;
 }
