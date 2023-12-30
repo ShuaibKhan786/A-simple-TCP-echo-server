@@ -68,7 +68,10 @@ int set_nonblocking(int sock_fd){
     }
     return 1;
 }
-
+int data_transmission_in_binary(int client_sockfd){
+    //TODO do data transmission in
+    //binary protocol
+}
 int init_server(){
     struct addrinfo *addr = setup_server_address();
     if(addr == NULL){
@@ -131,7 +134,7 @@ int init_server(){
     
     label_fai:
     freeaddrinfo(addr);
-    
+
     if(sock_fd < 0){
         return -1;
     }
@@ -201,6 +204,14 @@ int ev_lp(int listen_sockfd){
                 //RST on the connected client
                 else{
                     //TODO exchange some data in binary format
+                    if(data_transmission_in_binary(fd)){
+                        close(fd);
+                        FD_CLR(fd,&master_set);
+                        if(fd == max_fd){
+                            max_fd--;
+                        }
+                        continue;
+                    }
                 }
             }
         }
