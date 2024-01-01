@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -15,7 +16,7 @@
 #define PORT "3040"
 #define BACKLOG 10
 int try = 0;
-
+char *buffer = NULL;
 struct addrinfo* setup_server_address(){
     struct addrinfo hints;
     hints.ai_flags = AI_PASSIVE; //wildcard address
@@ -69,9 +70,69 @@ int set_nonblocking(int sock_fd){
     return 1;
 }
 int data_transmission_in_binary(int client_sockfd){
-    //TODO do data transmission in
-    //binary protocol
+    char flag = 1;
+    
+    /*
+     *buffer allocated initially
+     *buffer globally avilable
+     *--- recive case ---*/
+    memset(buffer,0,sizeof(uint16_t)+2);
+    uint16_t recv_pack_size = sizeof(uint16_t) + 2;
+    ssize_t recv_tracker = 0;
+    do{
+        ssize_t bytes_recv = recv(client_sockfd,
+               buffer+recv_tracker,
+               recv_pack_size-recv_tracker,
+               0);
+        if(bytes_recv == 0){
+            //EOF
+            return 1;
+        }else if(bytes_recv >= sizeof(uint16_t) && flag){
+            recv_pack_size = 0;
+            memcpy(&recv_pack_size,buffer,sizeof(uint16_t));
+            recv_pack_size = ntohs(recv_pack_size);
+            buffer = realloc(buffer,recv_pack_size);
+            if(buffer == NULL){
+                //have a backup plan here
+            }
+            flag = 0;
+        }else if(bytes_recv == -1){
+            //do some error handling
+            switch(errno){
+                case EWOULDBLOCK || EAGAIN:
+                    if(recv_tracker < recv_pack_size){
+                        continue;
+                    }
+                default:
+                    continue;
+            }
+        }
+        recv_tracker += bytes_recv;
+    }while(recv_tracker < recv_pack_size);
+    
+    /*
+     * --- send case ---*/
+    ssize_t send_tracker = 0;
+    while(send_tracker < recv_pack_size){
+        ssize_t bytes_send = send(client_sockfd,
+                buffer+send_tracker,
+                recv_pack_size-send_tracker,
+                0);
+        if(bytes_send == -1){
+            switch(errno){
+                case EPIPE:
+                    return 1;
+                default:
+                    if(send_tracker < recv_pack_size){
+                        continue;
+                    }
+            }
+        }
+        recv_tracker += bytes_send;
+    }
+    return 0;
 }
+
 int init_server(){
     struct addrinfo *addr = setup_server_address();
     if(addr == NULL){
@@ -220,6 +281,10 @@ int ev_lp(int listen_sockfd){
 
 
 int main(void){
+    buffer = (char*) calloc(sizeof(uint16_t),2); 
+    if(buffer == NULL){
+        return -1;
+    }
     int listen_sockfd = init_server();
 
     if(listen_sockfd == -1){
