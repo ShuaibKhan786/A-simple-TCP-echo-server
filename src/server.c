@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <signal.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -279,8 +280,20 @@ int ev_lp(int listen_sockfd){
     }
 }
 
+void handler(int signum){
+    if(signum == SIGINT || signum == SIGTERM){
+        free(buffer);
+        exit(EXIT_SUCCESS);
+    }
+}
 
 int main(void){
+    struct sigaction sa;
+    sa.sa_handler = handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT,&sa,NULL);
+
     buffer = (char*) calloc(sizeof(uint16_t),2); 
     if(buffer == NULL){
         return -1;
