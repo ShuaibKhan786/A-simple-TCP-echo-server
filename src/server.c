@@ -16,8 +16,11 @@
 
 #define PORT "3040"
 #define BACKLOG 10
+
+void *buffer = NULL;
+ssize_t buffer_size = 1024;
 int try = 0;
-char *buffer = NULL;
+
 struct addrinfo* setup_server_address(){
     struct addrinfo hints;
     hints.ai_flags = AI_PASSIVE; //wildcard address
@@ -70,15 +73,27 @@ int set_nonblocking(int sock_fd){
     }
     return 1;
 }
+
+char* resize_mem(const uint16_t size){
+    void *new_buffer = realloc(buffer,size);
+    if(new_buffer == NULL){
+        void *temp_buffer = calloc(1,size);
+        if(temp_buffer == NULL){
+            return NULL;
+        }
+        memcpy(temp_buffer,buffer,buffer_size-1);
+        free(buffer);
+        return temp_buffer;
+    }
+    return new_buffer;
+}
+
 int data_transmission_in_binary(int client_sockfd){
     char flag = 1;
-    
-    /*
-     *buffer allocated initially
-     *buffer globally avilable
-     *--- recive case ---*/
-    memset(buffer,0,sizeof(uint16_t)+2);
-    uint16_t recv_pack_size = sizeof(uint16_t) + 2;
+    memset(buffer,0,buffer_size);
+
+    /*--- recive case ---*/
+    uint16_t recv_pack_size = sizeof(uint16_t);
     ssize_t recv_tracker = 0;
     do{
         ssize_t bytes_recv = recv(client_sockfd,
@@ -92,10 +107,6 @@ int data_transmission_in_binary(int client_sockfd){
             recv_pack_size = 0;
             memcpy(&recv_pack_size,buffer,sizeof(uint16_t));
             recv_pack_size = ntohs(recv_pack_size);
-            buffer = realloc(buffer,recv_pack_size);
-            if(buffer == NULL){
-                //have a backup plan here
-            }
             flag = 0;
         }else if(bytes_recv == -1){
             //do some error handling
@@ -109,6 +120,13 @@ int data_transmission_in_binary(int client_sockfd){
             }
         }
         recv_tracker += bytes_recv;
+        if(recv_tracker >= (buffer_size - 1)){
+            void *new_buffer = resize_mem(recv_pack_size);
+            if(new_buffer == NULL){
+                return 1;
+            }
+            buffer = new_buffer;
+        }
     }while(recv_tracker < recv_pack_size);
     
     /*
@@ -122,6 +140,8 @@ int data_transmission_in_binary(int client_sockfd){
         if(bytes_send == -1){
             switch(errno){
                 case EPIPE:
+                    return 1;
+                case ECONNRESET:
                     return 1;
                 default:
                     if(send_tracker < recv_pack_size){
@@ -192,7 +212,7 @@ int init_server(){
         sock_fd = -1;
         printf("Failed to init the server\n");
     }
-    printf("Successfully init the server...\n");
+    printf("Successfully init the server...\n\n");
     
     label_fai:
     freeaddrinfo(addr);
@@ -251,7 +271,7 @@ int ev_lp(int listen_sockfd){
                                 continue;
                         }
                     }
-                   
+                    printf("A client with %d is connected\n",client_sockfd);
                     if(!set_nonblocking(client_sockfd)){
                         shutdown(client_sockfd,SHUT_RDWR);
                         continue;
@@ -267,6 +287,7 @@ int ev_lp(int listen_sockfd){
                 else{
                     //TODO exchange some data in binary format
                     if(data_transmission_in_binary(fd)){
+                        printf("A client with %d is terminated\n",fd);
                         close(fd);
                         FD_CLR(fd,&master_set);
                         if(fd == max_fd){
@@ -294,10 +315,11 @@ int main(void){
     sa.sa_flags = SA_RESTART;
     sigaction(SIGINT,&sa,NULL);
 
-    buffer = (char*) calloc(sizeof(uint16_t),2); 
+    buffer = calloc(1,buffer_size);
     if(buffer == NULL){
         return -1;
     }
+
     int listen_sockfd = init_server();
 
     if(listen_sockfd == -1){
