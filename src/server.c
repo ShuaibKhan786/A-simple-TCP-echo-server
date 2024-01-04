@@ -98,7 +98,7 @@ struct addrinfo* setup_server_address(){
 }
 
 /**
- * set_nonblocking set up 
+ * set_nonblocking() set up 
  * the socket file descriptor passed as an arg
  * to be in non blocking socket
  *      means the i/o function like send / recv 
@@ -106,9 +106,10 @@ struct addrinfo* setup_server_address(){
  *      buffer to recv  and no free space to send
  *      instead it will return an error EWOULDBLOCK / EAGAIN
  *      same goes to the accept() too
- * So this function first get the flag of the sock_fd
+ * So this function first get the flag (F_GETFL) of the sock_fd
  * and then do a bitwise manipulation | 
  * to make that bit pos align by the O_NONBLOCK(macro) on
+ * and then set the flag (F_SETFL) to that sock_fd
  * to that integer (bitmask / bitset concept)
  * finally this function returns
  *      1 if that sock_fd can set to non blocking
