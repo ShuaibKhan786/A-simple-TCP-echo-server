@@ -1,32 +1,76 @@
+/**
+ * @file    server.c
+ * @author  Md Shuaib Khan 
+ * @brief   A TCP echo server 
+ *          i,e non blocking ,
+ *              event-driven / event loop ,
+ *              binary protocol 
+ *          that runs on UNIX like environment
+ * @version 0.1
+ * @date    2024-01-01
+ * @copyright Copyright (c) 2024
+ */
+
+/**
+ * standard libary
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <signal.h>
-
+#include <unistd.h>
+#include <errno.h>
+/**
+ * libary to 
+ * set up an address information
+ * open a socket 
+ * bind an address to that socket
+ * listen for incoming connection to that socket
+ * and the related function's
+ */
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <unistd.h>
+/**
+ * libary to
+ * monitor the socket file descriptor
+ * make the socket file descriptor a non blocking socket
+ */
 #include <sys/select.h>
 #include <fcntl.h>
 
-#include <errno.h>
-
 #define PORT "3040"
 #define BACKLOG 10
-
+#define MAX_RETRY_ATTEMPTS 2
+/**
+ * global BUFFER to store the
+ * recived data from the client
+ */
 void *buffer = NULL;
 ssize_t buffer_size = 1024;
 int try = 0;
 
+/**
+ * setup_server_address() set up our 
+ * address information(ai) (like ip , port etc)
+ * to be used in our socket i,e our endpoint
+ * according to our specified in the
+ *      hints (struct addrinfo)
+ *  and resolved its ai in the 
+ *      res (struct addrinfo)
+ *      res  contains the head pointer of the linklist (struct addrinfo)
+ *  Used getaddrinfo() to set up ai 
+ *  finally function returns the
+ *      res (struct addrinfo)
+ */
 struct addrinfo* setup_server_address(){
     struct addrinfo hints;
-    hints.ai_flags = AI_PASSIVE; //wildcard address
-    hints.ai_family = AF_INET; //ipv4
+    hints.ai_flags = AI_PASSIVE;     //wildcard address
+    hints.ai_family = AF_INET;       //ipv4
     hints.ai_socktype = SOCK_STREAM; //stream socket / tcp socket
-    hints.ai_protocol = 0; //any protocol
+    hints.ai_protocol = 0;           //any protocol
     
     struct addrinfo *res;
  
@@ -39,7 +83,7 @@ struct addrinfo* setup_server_address(){
     );
     if(gai_stat != 0){
         if(gai_stat == EAI_AGAIN){
-            if(try < 2){
+            if(try < MAX_RETRY_ATTEMPTS){
                 try++;
                 goto label_try_gai_again; 
             }
@@ -53,7 +97,24 @@ struct addrinfo* setup_server_address(){
     return res;
 }
 
-int set_nonblocking(int sock_fd){
+/**
+ * set_nonblocking set up 
+ * the socket file descriptor passed as an arg
+ * to be in non blocking socket
+ *      means the i/o function like send / recv 
+ *      wont block when there is no data in the 
+ *      buffer to recv  and no free space to send
+ *      instead it will return an error EWOULDBLOCK / EAGAIN
+ *      same goes to the accept() too
+ * So this function first get the flag of the sock_fd
+ * and then do a bitwise manipulation | 
+ * to make that bit pos align by the O_NONBLOCK(macro) on
+ * to that integer (bitmask / bitset concept)
+ * finally this function returns
+ *      1 if that sock_fd can set to non blocking
+ *      0 if cant
+ */
+int set_nonblocking(const int sock_fd){
     int flags = fcntl(sock_fd,
             F_GETFL,
             0);
@@ -174,7 +235,7 @@ int init_server(){
                 continue;
             }
 
-            int yes = 1; //to resolve address in use /EADDRINUSE 
+            int yes = 1; //to resolve EADDRINUSE error in bind()
             setsockopt(sock_fd,
                     SOL_SOCKET,
                     SO_REUSEADDR,
