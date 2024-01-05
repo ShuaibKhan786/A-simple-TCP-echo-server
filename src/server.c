@@ -2,7 +2,8 @@
  * @file    server.c
  * @author  Md Shuaib Khan 
  * @brief   A TCP echo server 
- *          i,e non blocking ,
+ *          i,e single threaded ,
+ *              non blocking ,
  *              event-driven / event loop ,
  *              binary protocol 
  *          that runs on UNIX like environment
@@ -22,21 +23,21 @@
 #include <unistd.h>
 #include <errno.h>
 /**
- * libary to 
- * set up an address information
- * open a socket 
- * bind an address to that socket
- * listen for incoming connection to that socket
- * and the related function's
+ * libary  
+ * - to set up an address information
+ * - to open a socket 
+ * - to bind an address to that socket
+ * - to listen for incoming connection to that socket
+ * and other related function's and MACROS
  */
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
 /**
- * libary to
- * monitor the socket file descriptor
- * make the socket file descriptor a non blocking socket
+ * libary 
+ * - to monitor the socket file descriptor
+ * - to make the socket file descriptor a non blocking socket
  */
 #include <sys/select.h>
 #include <fcntl.h>
@@ -53,17 +54,17 @@ ssize_t buffer_size = 1024;
 int try = 0;
 
 /**
- * setup_server_address() set up our 
- * address information(ai) (like ip , port etc)
- * to be used in our socket i,e our endpoint
- * according to our specified in the
- *      hints (struct addrinfo)
- *  and resolved its ai in the 
- *      res (struct addrinfo)
- *      res  contains the head pointer of the linklist (struct addrinfo)
- *  Used getaddrinfo() to set up ai 
- *  finally function returns the
- *      res (struct addrinfo)
+ * setup_server_address()
+ * - Configures address information (ai) such as IP and port for the socket (endpoint).
+ * - Sets up the address based on specified hints (struct addrinfo).
+ * - Resolves the address information in the result (struct addrinfo).
+ * - The result (res) contains the head pointer of the linked list (struct addrinfo).
+ * - Uses getaddrinfo() to set up the address information (ai).
+ * 
+ * Returns:
+ * - result (struct addrinfo) containing the configured address information , if successfull.
+ * - NULL , if fails to setup the ai.
+
  */
 struct addrinfo* setup_server_address(){
     struct addrinfo hints;
@@ -98,22 +99,21 @@ struct addrinfo* setup_server_address(){
 }
 
 /**
- * set_nonblocking() set up 
- * the socket file descriptor passed as an arg
- * to be in non blocking socket
- *      means the i/o function like send / recv 
- *      wont block when there is no data in the 
- *      buffer to recv  and no free space to send
- *      instead it will return an error EWOULDBLOCK / EAGAIN
- *      same goes to the accept() too
- * So this function first get the flag (F_GETFL) of the sock_fd
- * and then do a bitwise manipulation | 
- * to make that bit pos align by the O_NONBLOCK(macro) on
- * and then set the flag (F_SETFL) to that sock_fd
- * to that integer (bitmask / bitset concept)
- * finally this function returns
- *      1 if that sock_fd can set to non blocking
- *      0 if cant
+ * set_nonblocking()
+ * - Sets up the passed socket file descriptor to operate in non-blocking mode.
+ * - Non-blocking mode prevents I/O functions like send() or recv() from blocking
+ *   when there's no data to receive or insufficient space to send.
+ * - Instead of blocking, these functions return an error code (EWOULDBLOCK / EAGAIN).
+ * - The same non-blocking behavior applies to accept() as well.
+ * 
+ * Details:
+ * - Retrieves the current flags (F_GETFL) of the sock_fd.
+ * - Performs bitwise OR (|) operation to align a specific bit (O_NONBLOCK) on the flags.
+ * - Sets the modified flags (F_SETFL) back to the sock_fd.
+ * 
+ * Returns:
+ * - 1 if the sock_fd is successfully set to non-blocking mode.
+ * - 0 if unable to set the sock_fd to non-blocking mode.
  */
 int set_nonblocking(const int sock_fd){
     int flags = fcntl(sock_fd,
@@ -216,6 +216,23 @@ int data_transmission_in_binary(int client_sockfd){
     return 0;
 }
 
+/**
+ * init_server()
+ * This function sets up and initializes the server by creating a socket
+ * and binding it to a specific address and port. It prepares the socket
+ * to listen for incoming connections.
+ * 
+ * Details:
+ * - Uses setup_server_address() to get address information.
+ * - Iterates through available addresses and attempts to bind to one.
+ * - Sets socket options to handle address reuse (SO_REUSEADDR).
+ * - Sets the socket to non-blocking mode for efficient handling.
+ * - Listens for incoming connections with a specified backlog.
+ * 
+ * Returns:
+ * - On successful initialization, returns the socket file descriptor.
+ * - If an error occurs during setup, returns -1.
+ */
 int init_server(){
     struct addrinfo *addr = setup_server_address();
     if(addr == NULL){
@@ -226,7 +243,7 @@ int init_server(){
 
     struct addrinfo *temp = addr;
     while(temp != NULL){
-        // TODO loop through the avilable address and try to bind to one of the address     
+        // loop through the avilable address and try to bind to one of the address     
         if(temp->ai_family == AF_INET){
             sock_fd = socket(temp->ai_family,
                     temp->ai_socktype,
@@ -285,6 +302,27 @@ int init_server(){
     return sock_fd;
 }
 
+/**
+ * ev_lp()
+ * - Manages server concurrency using I/O multiplexing via select().
+ * - Sets up the listening socket (listen_sockfd) for monitoring incoming connections.
+ * - Monitors events like incoming connections, data arrival, and EOF using select().
+ * - Upon select() return:
+ *   - Checks if the event is on the listening socket:
+ *     - Accepts the incoming connection using accept().
+ *     - Sets the accepted socket to be non-blocking if successful; otherwise, shuts down the connection.
+ *     - Adds the accepted socket to the master set for monitoring data arrival.
+ *   - If the event is on a connected client:
+ *     - Initiates data transmission using data_transmission_in_binary().
+ *     - Clears the socket from the master set if data transmission returns 1 (indicating termination).
+ * - Continues monitoring events in an infinite loop.
+ *
+ * Params:
+ * - listen_sockfd: The socket file descriptor being monitored for incoming connections.
+ *
+ * Returns:
+ * - -1 if an error occurs during select().
+ */
 int ev_lp(int listen_sockfd){
     fd_set r_set;
     fd_set master_set;
@@ -312,13 +350,8 @@ int ev_lp(int listen_sockfd){
         
         for(int fd = 0 ; fd <= max_fd ; fd++){
             if(FD_ISSET(fd,&r_set)){
-                //check new incoming conection
+                //check for new incoming conection
                 if(fd == listen_sockfd){
-                    //TODO accept the new connection 
-                    //from the completed connection queue
-                    //and set it to the master_set 
-                    //and update the max_fd
-                    //if the new fd is greater than
                     struct sockaddr_storage client_addr; //can store either IPv4 or IPv6
                     socklen_t client_addr_len = sizeof client_addr;
 
@@ -347,7 +380,6 @@ int ev_lp(int listen_sockfd){
                 //check data arrival , FIN,
                 //RST on the connected client
                 else{
-                    //TODO exchange some data in binary format
                     if(data_transmission_in_binary(fd)){
                         printf("A client with %d is terminated\n",fd);
                         close(fd);
@@ -363,8 +395,18 @@ int ev_lp(int listen_sockfd){
     }
 }
 
+/**
+ * handler()
+ * since our server is long running process
+ * i,e a daemon process 
+ * the only way to terminate this process 
+ * is to interrupt by using crtl+C ,
+ * kill the process by using kill process
+ * TODO finished explaining this
+ */
 void handler(int signum){
-    if(signum == SIGINT || signum == SIGTERM){
+    if(signum == SIGINT || signum == SIGTERM ){
+        printf("CAUGHT YOU!!\n\n");
         free(buffer);
         exit(EXIT_SUCCESS);
     }
@@ -376,6 +418,7 @@ int main(void){
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGINT,&sa,NULL);
+    sigaction(SIGTERM,&sa,NULL);
 
     buffer = calloc(1,buffer_size);
     if(buffer == NULL){
