@@ -149,7 +149,10 @@ char* resize_mem(const uint16_t size){
     }
     return new_buffer;
 }
-
+/**
+ * TODO complete explaining data_transmission_in_binary
+ *      improve this function
+ */
 int data_transmission_in_binary(int client_sockfd){
     char flag = 1;
     memset(buffer,0,buffer_size);
@@ -397,12 +400,21 @@ int ev_lp(int listen_sockfd){
 
 /**
  * handler()
- * since our server is long running process
- * i,e a daemon process 
- * the only way to terminate this process 
- * is to interrupt by using crtl+C ,
- * kill the process by using kill process
- * TODO finished explaining this
+ * - Handles signal interrupts (SIGINT and SIGTERM) for the server.
+ * - Since the server is a long-running daemon process, terminating it requires
+ *   handling these signals to ensure a graceful exit and prevent memory leaks.
+ * 
+ * Details:
+ * - Detects SIGINT (Ctrl+C) or SIGTERM signals to trigger server shutdown.
+ * - Upon signal detection, it catches the signal and executes a graceful shutdown.
+ * - Performs necessary cleanup tasks before exiting, preventing memory leaks.
+ * 
+ * Signal Handling Process:
+ * - If the detected signal is SIGINT or SIGTERM:
+ *   - Frees the allocated buffer initialized during the server's start-up.
+ *   - Exits the server process with a successful status.
+ * 
+ * @param signum - Signal number received by the handler.
  */
 void handler(int signum){
     if(signum == SIGINT || signum == SIGTERM ){
