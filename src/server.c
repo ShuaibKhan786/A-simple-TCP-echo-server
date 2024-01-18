@@ -150,8 +150,29 @@ char* resize_mem(const uint16_t size){
     return new_buffer;
 }
 /**
- * TODO complete explaining data_transmission_in_binary
- *      improve this function
+ * data_transmission_in_binary()
+ * This function handles data transmission between the client and server
+ * using a binary protocol. It follows the format:
+ *
+ *  -----------------------------------------------------
+ * | data_size |            actual_data                  |
+ *  -----------------------------------------------------
+ * | uint16_t  |             uint16_t                    |
+ *  -----------------------------------------------------
+ * |  11+2=13  |              Hello World                |
+ *  -----------------------------------------------------
+ *
+ * It returns:
+ * - 1: when the client sends an EOF.
+ * - 0: when there is an error in the function.
+ * 
+ * Since data can't be transmitted all at once (e.g., if the size of the
+ * data is more than MTU, usually 1500 bytes), it doesn't send or receive
+ * the data at one go. Instead, it performs partial send and receive
+ * operations to ensure data integrity.
+ *
+ * @param client_sockfd The socket file descriptor for the client connection.
+ * @return Returns 1 on EOF, 0 on success, and -1 on error.
  */
 int data_transmission_in_binary(int client_sockfd){
     char flag = 1;
